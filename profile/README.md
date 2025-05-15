@@ -2,8 +2,8 @@
 
 ## Contact Us
 For more information or to request a consultation, please contact us at:
-- **Email**: contact@gauntletsecurity.com
-- **Website**: [www.gauntletsecurity.com](http://www.gauntletsecurity.com)
+- **Email**: contact@gauntlet.security
+- **Website**: [www.gauntlet.security](http://www.gauntlet.security)
 
 ---
 *Protecting what matters most. Trust Gauntlet.*
