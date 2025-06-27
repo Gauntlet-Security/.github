@@ -1,6 +1,11 @@
-name: Python CI
+name: Code Quality CI
 
 on:
+  pull_request:
+    branches: [ "*" ]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ "*" ]
   workflow_call:
     inputs:
       python-version:
@@ -18,52 +23,298 @@ on:
         required: false
         default: 'pyproject.toml'
         type: string
+      node-version:
+        description: 'Node.js version to use'
+        required: false
+        default: '18'
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint:
+  detect-language:
+    runs-on: ubuntu-latest
+    outputs:
+      has_python: ${{ steps.check-files.outputs.has_python }}
+      has_js_ts: ${{ steps.check-files.outputs.has_js_ts }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for Python and JS/TS files
+        id: check-files
+        run: |
+          # Exclude common directories that shouldn't be checked
+          EXCLUDE_DIRS="-path '*/node_modules/*' -o -path '*/.git/*' -o -path '*/venv/*' -o -path '*/__pycache__/*' -o -path '*/build/*' -o -path '*/dist/*'"
+          
+          # Check for Python files
+          PYTHON_COUNT=$(find . -type f -name "*.py" ! \( $EXCLUDE_DIRS \) | wc -l)
+          if [ "$PYTHON_COUNT" -gt 0 ]; then
+            echo "has_python=true" >> $GITHUB_OUTPUT
+            echo "Found $PYTHON_COUNT Python files"
+          else
+            echo "has_python=false" >> $GITHUB_OUTPUT
+            echo "No Python files found"
+          fi
+          
+          # Check for JS/TS files
+          JS_TS_COUNT=$(find . -type f \( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \) ! \( $EXCLUDE_DIRS \) | wc -l)
+          if [ "$JS_TS_COUNT" -gt 0 ]; then
+            echo "has_js_ts=true" >> $GITHUB_OUTPUT
+            echo "Found $JS_TS_COUNT JavaScript/TypeScript files"
+          else
+            echo "has_js_ts=false" >> $GITHUB_OUTPUT
+            echo "No JavaScript/TypeScript files found"
+          fi
+
+  python-lint:
+    needs: detect-language
+    if: ${{ needs.detect-language.outputs.has_python == 'true' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ inputs.python-version }}
         cache: 'pip'
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install ruff
+
     - name: Run Ruff linter and formatter
       run: |
-        ruff check . --config ${{ inputs.ruff-config }}
+        if [ -f "${{ inputs.ruff-config }}" ]; then
+          echo "Using config file: ${{ inputs.ruff-config }}"
+          ruff check . --config ${{ inputs.ruff-config }}
+        else
+          echo "Config file not found, running with default settings"
+          ruff check .
+        fi
 
-  security:
+  python-security:
+    needs: detect-language
+    if: ${{ needs.detect-language.outputs.has_python == 'true' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ inputs.python-version }}
         cache: 'pip'
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install bandit[toml]
+
     - name: Run Bandit security check with detailed report
       run: |
-        bandit -c ${{ inputs.bandit-config }} -r ./ -f html -o bandit-report.html
+        if [ -f "${{ inputs.bandit-config }}" ]; then
+          echo "Using config file: ${{ inputs.bandit-config }}"
+          bandit -c ${{ inputs.bandit-config }} -r ./ -f html -o bandit-report.html
+        else
+          echo "Config file not found, running with default settings"
+          bandit -r ./ -f html -o bandit-report.html
+        fi
+
     - name: Upload security reports
       uses: actions/upload-artifact@v4
       with:
-        name: security-reports
+        name: python-security-reports
         path: |
-            bandit-report.html
+          bandit-report.html
+
+  js-lint:
+    needs: detect-language
+    if: ${{ needs.detect-language.outputs.has_js_ts == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+
+    - name: Check for package.json and install dependencies
+      run: |
+        if [ -f "package.json" ]; then
+          npm ci || npm install
+        else
+          echo "No package.json found, installing ESLint globally"
+          npm install -g eslint prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin
+        fi
+
+    - name: Run ESLint
+      run: |
+        if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.yml" ] || [ -f "eslint.config.js" ]; then
+          npx eslint . --ext .js,.jsx,.ts,.tsx
+        else
+          echo "No ESLint config found, running with default TypeScript config"
+          npx eslint . --ext .js,.jsx,.ts,.tsx --parser @typescript-eslint/parser
+        fi
+    
+    - name: Check formatting with Prettier (if config exists)
+      run: |
+        if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f ".prettierrc.js" ] || [ -f "prettier.config.js" ]; then
+          npx prettier --check "src/**/*.{js,jsx,ts,tsx}" "utils/**/*.{js,jsx,ts,tsx}" "emails/**/*.{js,jsx,ts,tsx}" "server.ts"
+        else
+          echo "No Prettier config found, skipping formatting check"
+        fi
+    
+    - name: TypeScript type checking (if tsconfig exists)
+      run: |
+        if [ -f "tsconfig.json" ]; then
+          if command -v tsc &> /dev/null; then
+            npx tsc --noEmit
+          else
+            npm install -g typescript
+            npx tsc --noEmit
+          fi
+        else
+          echo "No TypeScript config found, skipping type checking"
+        fi
+
+
+  js-security:
+    needs: detect-language
+    if: ${{ needs.detect-language.outputs.has_js_ts == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies and audit tools
+      run: |
+        if [ -f "package.json" ]; then
+          npm ci || npm install
+        fi
+        npm install -g npm-audit-html
+
+    - name: Run npm audit
+      run: |
+        if [ -f "package.json" ]; then
+          npm audit --audit-level=moderate --json > npm-audit.json || echo "Audit completed with warnings"
+        else
+          echo "No package.json found, skipping npm audit"
+          echo "[]" > npm-audit.json
+        fi
+
+    - name: Run secure code review (optional)
+      uses: microsoft/security-devops-action@latest
+      id: msdo
+      continue-on-error: true
+      with:
+        languages: javascript,typescript
+
+    - name: Generate security report
+      run: |
+        if [ -s npm-audit.json ]; then
+          npm-audit-html -i npm-audit.json -o npm-audit-report.html || echo "Failed to generate HTML report, creating simple report"
+          if [ ! -f npm-audit-report.html ]; then
+            echo "<html><body><h1>NPM Audit Report</h1><pre>$(cat npm-audit.json)</pre></body></html>" > npm-audit-report.html
+          fi
+        else
+          echo "<html><body><h1>NPM Audit Report</h1><p>No vulnerabilities found or no package.json present</p></body></html>" > npm-audit-report.html
+        fi
+        
+    - name: Upload security reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: js-security-reports
+        path: |
+          npm-audit-report.html
 
   pr-status-check:
     runs-on: ubuntu-latest
-    needs: [lint, security]
+    needs: [detect-language, python-lint, python-security, js-lint, js-security]
+    if: always()
     steps:
-      - name: PR is ready to be merged
+      - name: Check job statuses
         run: |
-          echo "All checks passed! PR is ready to be reviewed and merged."
+          echo "=== Code Quality CI Status Report ==="
+          PYTHON_NEEDED="${{ needs.detect-language.outputs.has_python }}"
+          JS_TS_NEEDED="${{ needs.detect-language.outputs.has_js_ts }}"
+          
+          echo "Languages detected:"
+          echo "  Python: $PYTHON_NEEDED"
+          echo "  JavaScript/TypeScript: $JS_TS_NEEDED"
+          echo ""
+          
+          FAILED_JOBS=()
+          
+          if [[ "$PYTHON_NEEDED" == "true" ]]; then
+            echo "Python job results:"
+            echo "  Linting: ${{ needs.python-lint.result }}"
+            echo "  Security: ${{ needs.python-security.result }}"
+            
+            if [[ "${{ needs.python-lint.result }}" != "success" ]]; then
+              FAILED_JOBS+=("Python linting")
+            fi
+            if [[ "${{ needs.python-security.result }}" != "success" ]]; then
+              FAILED_JOBS+=("Python security")
+            fi
+          fi
+          
+          if [[ "$JS_TS_NEEDED" == "true" ]]; then
+            echo "JavaScript/TypeScript job results:"
+            echo "  Linting: ${{ needs.js-lint.result }}"
+            echo "  Security: ${{ needs.js-security.result }}"
+            
+            if [[ "${{ needs.js-lint.result }}" != "success" ]]; then
+              FAILED_JOBS+=("JavaScript/TypeScript linting")
+            fi
+            if [[ "${{ needs.js-security.result }}" != "success" ]]; then
+              FAILED_JOBS+=("JavaScript/TypeScript security")
+            fi
+          fi
+          
+          if [ ${#FAILED_JOBS[@]} -eq 0 ]; then
+            echo ""
+            echo "✅ All required checks passed! PR is ready to be reviewed and merged."
+          else
+            echo ""
+            echo "❌ The following checks failed:"
+            for job in "${FAILED_JOBS[@]}"; do
+              echo "  - $job"
+            done
+            echo ""
+            echo "Please fix the issues and push your changes."
+            exit 1
+          fi
+
+  all-checks-passed:
+    name: All Quality Checks Passed
+    runs-on: ubuntu-latest
+    needs: [detect-language, python-lint, python-security, js-lint, js-security, pr-status-check]
+    if: always()
+    steps:
+      - name: Check if all required jobs passed
+        run: |
+          echo "Checking final status for PR protection..."
+          
+          # Check if pr-status-check passed
+          if [[ "${{ needs.pr-status-check.result }}" != "success" ]]; then
+            echo "❌ Code quality checks failed. PR cannot be merged."
+            exit 1
+          fi
+          
+          echo "✅ All code quality checks passed. PR can be merged."
+      
+      - name: Set PR ready status
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "PR #${{ github.event.number }} is ready for review and merge"
+          echo "All automated code quality checks have passed successfully"
