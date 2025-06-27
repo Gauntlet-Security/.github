@@ -6,6 +6,28 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [ "*" ]
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        required: false
+        default: '3.10'
+        type: string
+      ruff-config:
+        description: 'Path to ruff config file'
+        required: false
+        default: 'pyproject.toml'
+        type: string
+      bandit-config:
+        description: 'Path to bandit config file'
+        required: false
+        default: 'pyproject.toml'
+        type: string
+      node-version:
+        description: 'Node.js version to use'
+        required: false
+        default: '18'
+        type: string
   workflow_call:
     inputs:
       python-version:
@@ -32,6 +54,12 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: ${{ inputs.python-version || '3.10' }}
+  RUFF_CONFIG: ${{ inputs.ruff-config || 'pyproject.toml' }}
+  BANDIT_CONFIG: ${{ inputs.bandit-config || 'pyproject.toml' }}
+  NODE_VERSION: ${{ inputs.node-version || '18' }}
 
 jobs:
   detect-language:
@@ -77,7 +105,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ inputs.python-version }}
+        python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
 
     - name: Install dependencies
@@ -87,9 +115,9 @@ jobs:
 
     - name: Run Ruff linter and formatter
       run: |
-        if [ -f "${{ inputs.ruff-config }}" ]; then
-          echo "Using config file: ${{ inputs.ruff-config }}"
-          ruff check . --config ${{ inputs.ruff-config }}
+        if [ -f "${{ env.RUFF_CONFIG }}" ]; then
+          echo "Using config file: ${{ env.RUFF_CONFIG }}"
+          ruff check . --config ${{ env.RUFF_CONFIG }}
         else
           echo "Config file not found, running with default settings"
           ruff check .
@@ -105,7 +133,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ inputs.python-version }}
+        python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
 
     - name: Install dependencies
@@ -115,9 +143,9 @@ jobs:
 
     - name: Run Bandit security check with detailed report
       run: |
-        if [ -f "${{ inputs.bandit-config }}" ]; then
-          echo "Using config file: ${{ inputs.bandit-config }}"
-          bandit -c ${{ inputs.bandit-config }} -r ./ -f html -o bandit-report.html
+        if [ -f "${{ env.BANDIT_CONFIG }}" ]; then
+          echo "Using config file: ${{ env.BANDIT_CONFIG }}"
+          bandit -c ${{ env.BANDIT_CONFIG }} -r ./ -f html -o bandit-report.html
         else
           echo "Config file not found, running with default settings"
           bandit -r ./ -f html -o bandit-report.html
@@ -140,7 +168,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ inputs.node-version }}
+        node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
 
     - name: Check for package.json and install dependencies
@@ -193,7 +221,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ inputs.node-version }}
+        node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
 
     - name: Install dependencies and audit tools
