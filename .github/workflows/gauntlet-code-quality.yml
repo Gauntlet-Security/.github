@@ -192,7 +192,31 @@ jobs:
     - name: Check formatting with Prettier (if config exists)
       run: |
         if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f ".prettierrc.js" ] || [ -f "prettier.config.js" ]; then
-          npx prettier --check "src/**/*.{js,jsx,ts,tsx}" "utils/**/*.{js,jsx,ts,tsx}" "emails/**/*.{js,jsx,ts,tsx}" "server.ts"
+          PRETTIER_TARGETS=""
+          
+          # Check if directories exist and add them to targets
+          if [ -d "src" ]; then
+            PRETTIER_TARGETS="$PRETTIER_TARGETS \"src/**/*.{js,jsx,ts,tsx}\""
+          fi
+          
+          if [ -d "utils" ]; then
+            PRETTIER_TARGETS="$PRETTIER_TARGETS \"utils/**/*.{js,jsx,ts,tsx}\""
+          fi
+          
+          if [ -d "emails" ]; then
+            PRETTIER_TARGETS="$PRETTIER_TARGETS \"emails/**/*.{js,jsx,ts,tsx}\""
+          fi
+          
+          # Check if server.ts exists
+          if [ -f "server.ts" ]; then
+            PRETTIER_TARGETS="$PRETTIER_TARGETS \"server.ts\""
+          fi
+          
+          if [ -n "$PRETTIER_TARGETS" ]; then
+            eval "npx prettier --check $PRETTIER_TARGETS"
+          else
+            echo "No files to check with Prettier"
+          fi
         else
           echo "No Prettier config found, skipping formatting check"
         fi
