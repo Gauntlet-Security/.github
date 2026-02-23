@@ -1,5 +1,19 @@
 # Gauntlet Security Platform - Copilot Instructions
 
+## Engineering Philosophy
+
+Before making code changes, apply these core principles:
+
+| Principle | Description |
+|-----------|-------------|
+| **DRY** | Flag repetition aggressively - extract reusable functions/components |
+| **Testing** | Well-tested code is non-negotiable; prefer too many tests over too few |
+| **Right-sized engineering** | Avoid under-engineered (fragile, hacky) AND over-engineered (premature abstraction) |
+| **Edge case coverage** | Handle more edge cases, not fewer; thoughtfulness > speed |
+| **Explicit over clever** | Prioritize readability and maintainability over clever shortcuts |
+
+---
+
 ## Architecture Overview
 
 Gauntlet is a **cloud security posture management (CSPM)** platform with multiple interconnected components:
@@ -14,9 +28,7 @@ Gauntlet is a **cloud security posture management (CSPM)** platform with multipl
 | `Gauntlet-Emails/` | TypeScript + React Email | Email notification service |
 | `Gauntlet-DB/` | Python + SQLAlchemy | Shared database models (PostgreSQL) |
 
----
-
-## Cross-Component Dependencies
+### Cross-Component Dependencies
 
 **Gauntlet-DB is the shared foundation** - Install it before other Python packages:
 ```bash
@@ -28,6 +40,46 @@ Database import pattern:
 from db.models import AWSCredentials, CloudCredentials, ExceptionInfo
 from db.utils import get_db_session
 ```
+
+---
+
+## Code Review Checklist
+
+When reviewing or writing code, evaluate against these dimensions:
+
+### 1. Architecture Review
+- Overall system design and component boundaries
+- Dependency graph and coupling concerns
+- Data flow patterns and potential bottlenecks
+- Scaling characteristics and single points of failure
+- Security architecture (auth, data access, API boundaries)
+
+### 2. Code Quality Review
+- Code organization and module structure
+- DRY violations (flag aggressively)
+- Error handling patterns and missing edge cases (call out explicitly)
+- Technical debt hotspots
+- Over-engineered vs under-engineered areas
+
+### 3. Test Review
+- Test coverage gaps (unit, integration, e2e)
+- Test quality and assertion strength
+- Missing edge case coverage (be thorough)
+- Untested failure modes and error paths
+
+### 4. Performance Review
+- N+1 queries and database access patterns
+- Memory usage concerns
+- Caching opportunities
+- Slow or high-complexity code paths
+
+### Issue Resolution Process
+For each issue found:
+1. Describe the problem concretely with file and line references
+2. Present 2-3 options (include "do nothing" where reasonable)
+3. Specify: implementation effort, risk, impact on other code, maintenance burden
+4. Recommend an option mapped to engineering philosophy above
+5. Ask for confirmation before proceeding
 
 ---
 
@@ -106,6 +158,26 @@ def calculate_total(items: List[Item]) -> float:
     """
 ```
 
+#### Error Handling Best Practices
+```python
+# ✅ CORRECT - Explicit error handling with specific exceptions
+def fetch_user_data(user_id: str) -> dict:
+    """Fetch user data with comprehensive error handling."""
+    if not user_id:
+        raise ValueError("user_id cannot be empty")
+    
+    try:
+        response = api_client.get(f"/users/{user_id}")
+        response.raise_for_status()
+        return response.json()
+    except requests.HTTPError as e:
+        if e.response.status_code == 404:
+            raise UserNotFoundError(f"User {user_id} not found") from e
+        raise ApiError(f"API request failed: {e}") from e
+    except requests.RequestException as e:
+        raise ConnectionError(f"Network error: {e}") from e
+```
+
 #### Logging
 ```python
 from logzero import logger
@@ -175,6 +247,16 @@ const config = {
 };
 ```
 
+#### Error Boundaries (React)
+```javascript
+// ✅ CORRECT - Wrap components that may fail
+const Dashboard = () => (
+  <ErrorBoundary fallback={<ErrorFallback />}>
+    <ScanResults />
+  </ErrorBoundary>
+);
+```
+
 ---
 
 ### Rust (gauntlet-spectra)
@@ -223,6 +305,10 @@ let config = fs::read_to_string(path).unwrap();
 ///
 /// # Returns
 /// Vector of findings or error
+///
+/// # Errors
+/// Returns `ScanError::InvalidPath` if path doesn't exist
+/// Returns `ScanError::PermissionDenied` if lacking read access
 pub fn scan_repository(path: &Path, config: &Config) -> Result<Vec<Finding>> {
     // ...
 }
@@ -271,31 +357,6 @@ except botocore.exceptions.ClientError as error:
 
 ---
 
-## Development Workflows
-
-### Python Projects
-```bash
-uv pip install -e ".[dev]"   # Install with dev dependencies
-pre-commit install           # Setup git hooks
-pytest                       # Run tests
-```
-
-### Frontend
-```bash
-npm install && npm start     # Dev server on port 3000
-npm run test                 # Vitest
-npm run lint:fix             # ESLint + Prettier
-```
-
-### Rust
-```bash
-cargo build --release
-cargo test
-cargo clippy                 # Strict linting
-```
-
----
-
 ## DRY Principle (All Languages)
 
 Extract repeated code into reusable functions:
@@ -321,6 +382,66 @@ const useApiMutation = (url, mutator, successMsg) => {
 
 ---
 
+## Development Workflows
+
+### Python Projects
+```bash
+uv pip install -e ".[dev]"   # Install with dev dependencies
+pre-commit install           # Setup git hooks
+pytest                       # Run tests
+pytest --cov=gauntlet        # Run with coverage
+```
+
+### Frontend
+```bash
+npm install && npm start     # Dev server on port 3000
+npm run test                 # Vitest
+npm run lint:fix             # ESLint + Prettier
+npm run build                # Production build
+```
+
+### Rust
+```bash
+cargo build --release
+cargo test
+cargo clippy                 # Strict linting
+cargo fmt --check            # Format check
+```
+
+---
+
+## Testing Requirements
+
+| Component | Command | Framework | Coverage Target |
+|-----------|---------|-----------|-----------------|
+| Frontend | `npm test` | Vitest | Components, hooks, utils |
+| Python | `pytest` | pytest-cov | All public functions |
+| Rust | `cargo test` | Built-in | All modules |
+
+### Test Writing Guidelines
+- **Unit tests**: Every public function/method
+- **Integration tests**: API endpoints, database operations
+- **Edge cases**: Empty inputs, null values, boundary conditions, error paths
+- **Mocking**: External APIs, database calls in unit tests
+
+```python
+# ✅ CORRECT - Comprehensive test with edge cases
+def test_validate_credentials():
+    # Happy path
+    assert validate_user_credentials("valid_user", "valid_pass") is True
+    
+    # Edge cases
+    assert validate_user_credentials("", "valid_pass") is False
+    assert validate_user_credentials("valid_user", "") is False
+    assert validate_user_credentials(None, "valid_pass") is False
+    
+    # Error paths
+    with pytest.raises(DatabaseConnectionError):
+        validate_user_credentials("user", "pass", db_unavailable=True)
+```
+
+---
+
 ## Key Environment Variables
 
 | Variable | Component | Purpose |
@@ -332,16 +453,6 @@ const useApiMutation = (url, mutator, successMsg) => {
 
 ---
 
-## Testing
-
-| Component | Command | Framework |
-|-----------|---------|-----------|
-| Frontend | `npm test` | Vitest |
-| Python | `pytest` | pytest-cov |
-| Rust | `cargo test` | Built-in |
-
----
-
 ## File Patterns
 
 - `__version__.py` - Version at package root (Python)
@@ -349,3 +460,18 @@ const useApiMutation = (url, mutator, successMsg) => {
 - `.pre-commit-config.yaml` - Git hooks
 - `sample.py` - Usage examples
 - `Cargo.toml` - Rust config with clippy lints
+
+---
+
+## Review Mode Selection
+
+When starting a review, choose the appropriate mode:
+
+**BIG CHANGE** (Multi-step interactive):
+- Work through Architecture → Code Quality → Tests → Performance
+- Max 4 top issues per section
+- Pause for feedback after each section
+
+**SMALL CHANGE** (Quick review):
+- One key question per review section
+- Faster turnaround for targeted changes
