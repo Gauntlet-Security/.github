@@ -2,53 +2,61 @@ name: Code Quality CI
 
 on:
   pull_request:
-    branches: [ "*" ]
-    types: [opened, edited, synchronize, reopened, ready_for_review, review_requested]
+    branches: ["*"]
+    types:
+      [
+        opened,
+        edited,
+        synchronize,
+        reopened,
+        ready_for_review,
+        review_requested,
+      ]
   push:
-    branches: [ "*" ]
+    branches: ["*"]
   workflow_dispatch:
     inputs:
       python-version:
-        description: 'Python version to use'
+        description: "Python version to use"
         required: false
-        default: '3.10'
+        default: "3.10"
         type: string
       ruff-config:
-        description: 'Path to ruff config file'
+        description: "Path to ruff config file"
         required: false
-        default: 'pyproject.toml'
+        default: "pyproject.toml"
         type: string
       bandit-config:
-        description: 'Path to bandit config file'
+        description: "Path to bandit config file"
         required: false
-        default: 'pyproject.toml'
+        default: "pyproject.toml"
         type: string
       node-version:
-        description: 'Node.js version to use'
+        description: "Node.js version to use"
         required: false
-        default: '18'
+        default: "18"
         type: string
   workflow_call:
     inputs:
       python-version:
-        description: 'Python version to use'
+        description: "Python version to use"
         required: false
-        default: '3.10'
+        default: "3.10"
         type: string
       ruff-config:
-        description: 'Path to ruff config file'
+        description: "Path to ruff config file"
         required: false
-        default: 'pyproject.toml'
+        default: "pyproject.toml"
         type: string
       bandit-config:
-        description: 'Path to bandit config file'
+        description: "Path to bandit config file"
         required: false
-        default: 'pyproject.toml'
+        default: "pyproject.toml"
         type: string
       node-version:
-        description: 'Node.js version to use'
+        description: "Node.js version to use"
         required: false
-        default: '18'
+        default: "18"
         type: string
 
 concurrency:
@@ -74,7 +82,7 @@ jobs:
         run: |
           # Exclude common directories that shouldn't be checked
           EXCLUDE_DIRS="-path '*/node_modules/*' -o -path '*/.git/*' -o -path '*/venv/*' -o -path '*/__pycache__/*' -o -path '*/build/*' -o -path '*/dist/*'"
-          
+
           # Check for Python files
           PYTHON_COUNT=$(find . -type f -name "*.py" ! \( $EXCLUDE_DIRS \) | wc -l)
           if [ "$PYTHON_COUNT" -gt 0 ]; then
@@ -84,7 +92,7 @@ jobs:
             echo "has_python=false" >> $GITHUB_OUTPUT
             echo "No Python files found"
           fi
-          
+
           # Check for JS/TS files
           JS_TS_COUNT=$(find . -type f \( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \) ! \( $EXCLUDE_DIRS \) | wc -l)
           if [ "$JS_TS_COUNT" -gt 0 ]; then
@@ -100,194 +108,239 @@ jobs:
     if: ${{ needs.detect-language.outputs.has_python == 'true' }}
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install ruff
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
 
-    - name: Run Ruff linter and formatter
-      run: |
-        if [ -f "${{ env.RUFF_CONFIG }}" ]; then
-          echo "Using config file: ${{ env.RUFF_CONFIG }}"
-          ruff check . --config ${{ env.RUFF_CONFIG }}
-        else
-          echo "Config file not found, running with default settings"
-          ruff check .
-        fi
+      - name: Run Ruff linter and formatter
+        run: |
+          if [ -f "${{ env.RUFF_CONFIG }}" ]; then
+            echo "Using config file: ${{ env.RUFF_CONFIG }}"
+            ruff check . --config ${{ env.RUFF_CONFIG }}
+          else
+            echo "Config file not found, running with default settings"
+            ruff check .
+          fi
 
   python-security:
     needs: detect-language
     if: ${{ needs.detect-language.outputs.has_python == 'true' }}
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install bandit[toml]
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit[toml]
 
-    - name: Run Bandit security check with detailed report
-      run: |
-        if [ -f "${{ env.BANDIT_CONFIG }}" ]; then
-          echo "Using config file: ${{ env.BANDIT_CONFIG }}"
-          bandit -c ${{ env.BANDIT_CONFIG }} -r ./ -f html -o bandit-report.html
-        else
-          echo "Config file not found, running with default settings"
-          bandit -r ./ -f html -o bandit-report.html
-        fi
+      - name: Run Bandit security check with detailed report
+        run: |
+          if [ -f "${{ env.BANDIT_CONFIG }}" ]; then
+            echo "Using config file: ${{ env.BANDIT_CONFIG }}"
+            bandit -c ${{ env.BANDIT_CONFIG }} -r ./ -f html -o bandit-report.html
+          else
+            echo "Config file not found, running with default settings"
+            bandit -r ./ -f html -o bandit-report.html
+          fi
 
-    - name: Upload security reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: python-security-reports
-        path: |
-          bandit-report.html
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-security-reports
+          path: |
+            bandit-report.html
 
   js-lint:
     needs: detect-language
     if: ${{ needs.detect-language.outputs.has_js_ts == 'true' }}
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-
-    - name: Check for package.json and install dependencies
-      run: |
-        if [ -f "package.json" ]; then
-          npm ci || npm install
-        else
-          echo "No package.json found, installing ESLint globally"
-          npm install -g eslint prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin
-        fi
-
-    - name: Run ESLint
-      run: |
-        if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.yml" ] || [ -f "eslint.config.js" ] || [ -f ".eslintrc.cjs" ]; then
-          npx eslint . --ext .js,.jsx,.ts,.tsx
-        else
-          echo "No ESLint config found, running with default TypeScript config"
-          npx eslint . --ext .js,.jsx,.ts,.tsx --parser @typescript-eslint/parser
-        fi
-    
-    - name: Check formatting with Prettier (if config exists)
-      run: |
-        if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f ".prettierrc.js" ] || [ -f "prettier.config.js" ]; then
-          PRETTIER_TARGETS=""
-          
-          # Check if directories exist and add them to targets
-          if [ -d "src" ]; then
-            PRETTIER_TARGETS="$PRETTIER_TARGETS \"src/**/*.{js,jsx,ts,tsx}\""
-          fi
-          
-          if [ -d "utils" ]; then
-            PRETTIER_TARGETS="$PRETTIER_TARGETS \"utils/**/*.{js,jsx,ts,tsx}\""
-          fi
-          
-          if [ -d "emails" ]; then
-            PRETTIER_TARGETS="$PRETTIER_TARGETS \"emails/**/*.{js,jsx,ts,tsx}\""
-          fi
-          
-          # Check if server.ts exists
-          if [ -f "server.ts" ]; then
-            PRETTIER_TARGETS="$PRETTIER_TARGETS \"server.ts\""
-          fi
-          
-          if [ -n "$PRETTIER_TARGETS" ]; then
-            eval "npx prettier --check $PRETTIER_TARGETS"
+      - name: Detect package manager
+        id: detect-pm
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "manager=pnpm" >> $GITHUB_OUTPUT
+          elif [ -f "yarn.lock" ]; then
+            echo "manager=yarn" >> $GITHUB_OUTPUT
           else
-            echo "No files to check with Prettier"
+            echo "manager=npm" >> $GITHUB_OUTPUT
           fi
-        else
-          echo "No Prettier config found, skipping formatting check"
-        fi
-    
-    - name: TypeScript type checking (if tsconfig exists)
-      run: |
-        if [ -f "tsconfig.json" ]; then
-          if command -v tsc &> /dev/null; then
-            npx tsc --noEmit
-          else
-            npm install -g typescript
-            npx tsc --noEmit
-          fi
-        else
-          echo "No TypeScript config found, skipping type checking"
-        fi
 
+      - name: Install pnpm
+        if: steps.detect-pm.outputs.manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ steps.detect-pm.outputs.manager }}
+
+      - name: Check for package.json and install dependencies
+        run: |
+          if [ -f "package.json" ]; then
+            if [ "${{ steps.detect-pm.outputs.manager }}" = "pnpm" ]; then
+              pnpm install --frozen-lockfile
+            elif [ "${{ steps.detect-pm.outputs.manager }}" = "yarn" ]; then
+              yarn install --frozen-lockfile
+            else
+              npm ci || npm install
+            fi
+          else
+            echo "No package.json found, installing ESLint globally"
+            npm install -g eslint prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin
+          fi
+
+      - name: Run ESLint
+        run: |
+          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.yml" ] || [ -f "eslint.config.js" ] || [ -f ".eslintrc.cjs" ]; then
+            npx eslint . --ext .js,.jsx,.ts,.tsx
+          else
+            echo "No ESLint config found, running with default TypeScript config"
+            npx eslint . --ext .js,.jsx,.ts,.tsx --parser @typescript-eslint/parser
+          fi
+
+      - name: Check formatting with Prettier (if config exists)
+        run: |
+          if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f ".prettierrc.js" ] || [ -f "prettier.config.js" ]; then
+            PRETTIER_TARGETS=""
+            
+            # Check if directories exist and add them to targets
+            if [ -d "src" ]; then
+              PRETTIER_TARGETS="$PRETTIER_TARGETS \"src/**/*.{js,jsx,ts,tsx}\""
+            fi
+            
+            if [ -d "utils" ]; then
+              PRETTIER_TARGETS="$PRETTIER_TARGETS \"utils/**/*.{js,jsx,ts,tsx}\""
+            fi
+            
+            if [ -d "emails" ]; then
+              PRETTIER_TARGETS="$PRETTIER_TARGETS \"emails/**/*.{js,jsx,ts,tsx}\""
+            fi
+            
+            # Check if server.ts exists
+            if [ -f "server.ts" ]; then
+              PRETTIER_TARGETS="$PRETTIER_TARGETS \"server.ts\""
+            fi
+            
+            if [ -n "$PRETTIER_TARGETS" ]; then
+              eval "npx prettier --check $PRETTIER_TARGETS"
+            else
+              echo "No files to check with Prettier"
+            fi
+          else
+            echo "No Prettier config found, skipping formatting check"
+          fi
+
+      - name: TypeScript type checking (if tsconfig exists)
+        run: |
+          if [ -f "tsconfig.json" ]; then
+            if command -v tsc &> /dev/null; then
+              npx tsc --noEmit
+            else
+              npm install -g typescript
+              npx tsc --noEmit
+            fi
+          else
+            echo "No TypeScript config found, skipping type checking"
+          fi
 
   js-security:
     needs: detect-language
     if: ${{ needs.detect-language.outputs.has_js_ts == 'true' }}
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-
-    - name: Install dependencies and audit tools
-      run: |
-        if [ -f "package.json" ]; then
-          npm ci || npm install
-        fi
-        npm install -g npm-audit-html
-
-    - name: Run npm audit
-      run: |
-        if [ -f "package.json" ]; then
-          npm audit --audit-level=moderate --json > npm-audit.json || echo "Audit completed with warnings"
-        else
-          echo "No package.json found, skipping npm audit"
-          echo "[]" > npm-audit.json
-        fi
-
-    - name: Run secure code review (optional)
-      uses: microsoft/security-devops-action@latest
-      id: msdo
-      continue-on-error: true
-      with:
-        languages: javascript,typescript
-
-    - name: Generate security report
-      run: |
-        if [ -s npm-audit.json ]; then
-          npm-audit-html -i npm-audit.json -o npm-audit-report.html || echo "Failed to generate HTML report, creating simple report"
-          if [ ! -f npm-audit-report.html ]; then
-            echo "<html><body><h1>NPM Audit Report</h1><pre>$(cat npm-audit.json)</pre></body></html>" > npm-audit-report.html
+      - name: Detect package manager
+        id: detect-pm
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "manager=pnpm" >> $GITHUB_OUTPUT
+          elif [ -f "yarn.lock" ]; then
+            echo "manager=yarn" >> $GITHUB_OUTPUT
+          else
+            echo "manager=npm" >> $GITHUB_OUTPUT
           fi
-        else
-          echo "<html><body><h1>NPM Audit Report</h1><p>No vulnerabilities found or no package.json present</p></body></html>" > npm-audit-report.html
-        fi
-        
-    - name: Upload security reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: js-security-reports
-        path: |
-          npm-audit-report.html
+
+      - name: Install pnpm
+        if: steps.detect-pm.outputs.manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ steps.detect-pm.outputs.manager }}
+
+      - name: Install dependencies and audit tools
+        run: |
+          if [ -f "package.json" ]; then
+            if [ "${{ steps.detect-pm.outputs.manager }}" = "pnpm" ]; then
+              pnpm install --frozen-lockfile
+            elif [ "${{ steps.detect-pm.outputs.manager }}" = "yarn" ]; then
+              yarn install --frozen-lockfile
+            else
+              npm ci || npm install
+            fi
+          fi
+          npm install -g npm-audit-html
+
+      - name: Run npm audit
+        run: |
+          if [ -f "package.json" ]; then
+            npm audit --audit-level=moderate --json > npm-audit.json || echo "Audit completed with warnings"
+          else
+            echo "No package.json found, skipping npm audit"
+            echo "[]" > npm-audit.json
+          fi
+
+      - name: Run secure code review (optional)
+        uses: microsoft/security-devops-action@latest
+        id: msdo
+        continue-on-error: true
+        with:
+          languages: javascript,typescript
+
+      - name: Generate security report
+        run: |
+          if [ -s npm-audit.json ]; then
+            npm-audit-html -i npm-audit.json -o npm-audit-report.html || echo "Failed to generate HTML report, creating simple report"
+            if [ ! -f npm-audit-report.html ]; then
+              echo "<html><body><h1>NPM Audit Report</h1><pre>$(cat npm-audit.json)</pre></body></html>" > npm-audit-report.html
+            fi
+          else
+            echo "<html><body><h1>NPM Audit Report</h1><p>No vulnerabilities found or no package.json present</p></body></html>" > npm-audit-report.html
+          fi
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: js-security-reports
+          path: |
+            npm-audit-report.html
 
   pr-status-check:
     runs-on: ubuntu-latest
@@ -299,14 +352,14 @@ jobs:
           echo "=== Code Quality CI Status Report ==="
           PYTHON_NEEDED="${{ needs.detect-language.outputs.has_python }}"
           JS_TS_NEEDED="${{ needs.detect-language.outputs.has_js_ts }}"
-          
+
           echo "Languages detected:"
           echo "  Python: $PYTHON_NEEDED"
           echo "  JavaScript/TypeScript: $JS_TS_NEEDED"
           echo ""
-          
+
           FAILED_JOBS=()
-          
+
           if [[ "$PYTHON_NEEDED" == "true" ]]; then
             echo "Python job results:"
             echo "  Linting: ${{ needs.python-lint.result }}"
@@ -319,7 +372,7 @@ jobs:
               FAILED_JOBS+=("Python security")
             fi
           fi
-          
+
           if [[ "$JS_TS_NEEDED" == "true" ]]; then
             echo "JavaScript/TypeScript job results:"
             echo "  Linting: ${{ needs.js-lint.result }}"
@@ -332,7 +385,7 @@ jobs:
               FAILED_JOBS+=("JavaScript/TypeScript security")
             fi
           fi
-          
+
           if [ ${#FAILED_JOBS[@]} -eq 0 ]; then
             echo ""
             echo "✅ All required checks passed! PR is ready to be reviewed and merged."
@@ -350,21 +403,29 @@ jobs:
   all-checks-passed:
     name: All Quality Checks Passed
     runs-on: ubuntu-latest
-    needs: [detect-language, python-lint, python-security, js-lint, js-security, pr-status-check]
+    needs:
+      [
+        detect-language,
+        python-lint,
+        python-security,
+        js-lint,
+        js-security,
+        pr-status-check,
+      ]
     if: always()
     steps:
       - name: Check if all required jobs passed
         run: |
           echo "Checking final status for PR protection..."
-          
+
           # Check if pr-status-check passed
           if [[ "${{ needs.pr-status-check.result }}" != "success" ]]; then
             echo "❌ Code quality checks failed. PR cannot be merged."
             exit 1
           fi
-          
+
           echo "✅ All code quality checks passed. PR can be merged."
-      
+
       - name: Set PR ready status
         if: github.event_name == 'pull_request'
         run: |
