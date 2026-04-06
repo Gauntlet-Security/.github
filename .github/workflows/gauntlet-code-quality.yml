@@ -190,6 +190,10 @@ jobs:
         with:
           version: latest
 
+      - name: Install yarn
+        if: steps.detect-pm.outputs.manager == 'yarn'
+        run: corepack enable && corepack prepare yarn@stable --activate
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -213,15 +217,25 @@ jobs:
 
       - name: Run ESLint
         run: |
+          PM="${{ steps.detect-pm.outputs.manager }}"
+          RUN_CMD="npx"
+          if [ "$PM" = "pnpm" ]; then RUN_CMD="pnpm exec"; fi
+          if [ "$PM" = "yarn" ]; then RUN_CMD="yarn"; fi
+
           if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.yml" ] || [ -f "eslint.config.js" ] || [ -f ".eslintrc.cjs" ]; then
-            npx eslint . --ext .js,.jsx,.ts,.tsx
+            $RUN_CMD eslint . --ext .js,.jsx,.ts,.tsx
           else
             echo "No ESLint config found, running with default TypeScript config"
-            npx eslint . --ext .js,.jsx,.ts,.tsx --parser @typescript-eslint/parser
+            $RUN_CMD eslint . --ext .js,.jsx,.ts,.tsx --parser @typescript-eslint/parser
           fi
 
       - name: Check formatting with Prettier (if config exists)
         run: |
+          PM="${{ steps.detect-pm.outputs.manager }}"
+          RUN_CMD="npx"
+          if [ "$PM" = "pnpm" ]; then RUN_CMD="pnpm exec"; fi
+          if [ "$PM" = "yarn" ]; then RUN_CMD="yarn"; fi
+
           if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f ".prettierrc.js" ] || [ -f "prettier.config.js" ]; then
             PRETTIER_TARGETS=""
             
@@ -244,7 +258,7 @@ jobs:
             fi
             
             if [ -n "$PRETTIER_TARGETS" ]; then
-              eval "npx prettier --check $PRETTIER_TARGETS"
+              eval "$RUN_CMD prettier --check $PRETTIER_TARGETS"
             else
               echo "No files to check with Prettier"
             fi
@@ -254,13 +268,13 @@ jobs:
 
       - name: TypeScript type checking (if tsconfig exists)
         run: |
+          PM="${{ steps.detect-pm.outputs.manager }}"
+          RUN_CMD="npx"
+          if [ "$PM" = "pnpm" ]; then RUN_CMD="pnpm exec"; fi
+          if [ "$PM" = "yarn" ]; then RUN_CMD="yarn"; fi
+
           if [ -f "tsconfig.json" ]; then
-            if command -v tsc &> /dev/null; then
-              npx tsc --noEmit
-            else
-              npm install -g typescript
-              npx tsc --noEmit
-            fi
+            $RUN_CMD tsc --noEmit
           else
             echo "No TypeScript config found, skipping type checking"
           fi
@@ -289,6 +303,10 @@ jobs:
         with:
           version: latest
 
+      - name: Install yarn
+        if: steps.detect-pm.outputs.manager == 'yarn'
+        run: corepack enable && corepack prepare yarn@stable --activate
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -308,12 +326,19 @@ jobs:
           fi
           npm install -g npm-audit-html
 
-      - name: Run npm audit
+      - name: Run dependency audit
         run: |
+          PM="${{ steps.detect-pm.outputs.manager }}"
           if [ -f "package.json" ]; then
-            npm audit --audit-level=moderate --json > npm-audit.json || echo "Audit completed with warnings"
+            if [ "$PM" = "pnpm" ]; then
+              pnpm audit --json > npm-audit.json || echo "Audit completed with warnings"
+            elif [ "$PM" = "yarn" ]; then
+              yarn audit --json > npm-audit.json || echo "Audit completed with warnings"
+            else
+              npm audit --audit-level=moderate --json > npm-audit.json || echo "Audit completed with warnings"
+            fi
           else
-            echo "No package.json found, skipping npm audit"
+            echo "No package.json found, skipping dependency audit"
             echo "[]" > npm-audit.json
           fi
 
