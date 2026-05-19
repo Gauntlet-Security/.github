@@ -186,7 +186,7 @@ jobs:
 
       - name: Install pnpm
         if: steps.detect-pm.outputs.manager == 'pnpm'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v4.0.0
 
       - name: Install yarn
         if: steps.detect-pm.outputs.manager == 'yarn'
@@ -297,7 +297,7 @@ jobs:
 
       - name: Install pnpm
         if: steps.detect-pm.outputs.manager == 'pnpm'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v4.0.0
 
       - name: Install yarn
         if: steps.detect-pm.outputs.manager == 'yarn'
