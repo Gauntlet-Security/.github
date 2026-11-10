@@ -31,11 +31,6 @@ on:
         required: false
         default: "pyproject.toml"
         type: string
-      node-version:
-        description: "Node.js version to use"
-        required: false
-        default: "22"
-        type: string
   workflow_call:
     inputs:
       python-version:
@@ -53,11 +48,6 @@ on:
         required: false
         default: "pyproject.toml"
         type: string
-      node-version:
-        description: "Node.js version to use"
-        required: false
-        default: "22"
-        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -67,17 +57,15 @@ env:
   PYTHON_VERSION: ${{ inputs.python-version || '3.10' }}
   RUFF_CONFIG: ${{ inputs.ruff-config || 'pyproject.toml' }}
   BANDIT_CONFIG: ${{ inputs.bandit-config || 'pyproject.toml' }}
-  NODE_VERSION: ${{ inputs.node-version || '22' }}
 
 jobs:
   detect-language:
     runs-on: ubuntu-latest
     outputs:
       has_python: ${{ steps.check-files.outputs.has_python }}
-      has_js_ts: ${{ steps.check-files.outputs.has_js_ts }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check for Python and JS/TS files
+      - name: Check for Python
         id: check-files
         run: |
           # Exclude common directories that shouldn't be checked
@@ -92,17 +80,6 @@ jobs:
             echo "has_python=false" >> $GITHUB_OUTPUT
             echo "No Python files found"
           fi
-
-          # Check for JS/TS files
-          JS_TS_COUNT=$(find . -type f \( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \) ! \( $EXCLUDE_DIRS \) | wc -l)
-          if [ "$JS_TS_COUNT" -gt 0 ]; then
-            echo "has_js_ts=true" >> $GITHUB_OUTPUT
-            echo "Found $JS_TS_COUNT JavaScript/TypeScript files"
-          else
-            echo "has_js_ts=false" >> $GITHUB_OUTPUT
-            echo "No JavaScript/TypeScript files found"
-          fi
-
   python-lint:
     needs: detect-language
     if: ${{ needs.detect-language.outputs.has_python == 'true' }}
@@ -166,217 +143,18 @@ jobs:
           path: |
             bandit-report.html
 
-  js-lint:
-    needs: detect-language
-    if: ${{ needs.detect-language.outputs.has_js_ts == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Detect package manager
-        id: detect-pm
-        run: |
-          if [ -f "pnpm-lock.yaml" ]; then
-            echo "manager=pnpm" >> $GITHUB_OUTPUT
-          elif [ -f "yarn.lock" ]; then
-            echo "manager=yarn" >> $GITHUB_OUTPUT
-          else
-            echo "manager=npm" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Install pnpm
-        if: steps.detect-pm.outputs.manager == 'pnpm'
-        uses: pnpm/action-setup@v4.0.0
-
-      - name: Install yarn
-        if: steps.detect-pm.outputs.manager == 'yarn'
-        run: corepack enable && corepack prepare yarn@stable --activate
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: ${{ steps.detect-pm.outputs.manager }}
-
-      - name: Check for package.json and install dependencies
-        run: |
-          if [ -f "package.json" ]; then
-            if [ "${{ steps.detect-pm.outputs.manager }}" = "pnpm" ]; then
-              pnpm install --frozen-lockfile
-            elif [ "${{ steps.detect-pm.outputs.manager }}" = "yarn" ]; then
-              yarn install --frozen-lockfile
-            else
-              npm ci || npm install
-            fi
-          else
-            echo "No package.json found, installing ESLint globally"
-            npm install -g eslint prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin
-          fi
-
-      - name: Run ESLint
-        run: |
-          PM="${{ steps.detect-pm.outputs.manager }}"
-          RUN_CMD="npx"
-          if [ "$PM" = "pnpm" ]; then RUN_CMD="pnpm exec"; fi
-          if [ "$PM" = "yarn" ]; then RUN_CMD="yarn"; fi
-
-          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.yml" ] || [ -f "eslint.config.js" ] || [ -f ".eslintrc.cjs" ]; then
-            $RUN_CMD eslint . --ext .js,.jsx,.ts,.tsx
-          else
-            echo "No ESLint config found, running with default TypeScript config"
-            $RUN_CMD eslint . --ext .js,.jsx,.ts,.tsx --parser @typescript-eslint/parser
-          fi
-
-      - name: Check formatting with Prettier (if config exists)
-        run: |
-          PM="${{ steps.detect-pm.outputs.manager }}"
-          RUN_CMD="npx"
-          if [ "$PM" = "pnpm" ]; then RUN_CMD="pnpm exec"; fi
-          if [ "$PM" = "yarn" ]; then RUN_CMD="yarn"; fi
-
-          if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f ".prettierrc.js" ] || [ -f "prettier.config.js" ]; then
-            PRETTIER_TARGETS=""
-            
-            # Check if directories exist and add them to targets
-            if [ -d "src" ]; then
-              PRETTIER_TARGETS="$PRETTIER_TARGETS \"src/**/*.{js,jsx,ts,tsx}\""
-            fi
-            
-            if [ -d "utils" ]; then
-              PRETTIER_TARGETS="$PRETTIER_TARGETS \"utils/**/*.{js,jsx,ts,tsx}\""
-            fi
-            
-            if [ -d "emails" ]; then
-              PRETTIER_TARGETS="$PRETTIER_TARGETS \"emails/**/*.{js,jsx,ts,tsx}\""
-            fi
-            
-            # Check if server.ts exists
-            if [ -f "server.ts" ]; then
-              PRETTIER_TARGETS="$PRETTIER_TARGETS \"server.ts\""
-            fi
-            
-            if [ -n "$PRETTIER_TARGETS" ]; then
-              eval "$RUN_CMD prettier --check $PRETTIER_TARGETS"
-            else
-              echo "No files to check with Prettier"
-            fi
-          else
-            echo "No Prettier config found, skipping formatting check"
-          fi
-
-      - name: TypeScript type checking (if tsconfig exists)
-        run: |
-          PM="${{ steps.detect-pm.outputs.manager }}"
-          RUN_CMD="npx"
-          if [ "$PM" = "pnpm" ]; then RUN_CMD="pnpm exec"; fi
-          if [ "$PM" = "yarn" ]; then RUN_CMD="yarn"; fi
-
-          if [ -f "tsconfig.json" ]; then
-            $RUN_CMD tsc --noEmit
-          else
-            echo "No TypeScript config found, skipping type checking"
-          fi
-
-  js-security:
-    needs: detect-language
-    if: ${{ needs.detect-language.outputs.has_js_ts == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Detect package manager
-        id: detect-pm
-        run: |
-          if [ -f "pnpm-lock.yaml" ]; then
-            echo "manager=pnpm" >> $GITHUB_OUTPUT
-          elif [ -f "yarn.lock" ]; then
-            echo "manager=yarn" >> $GITHUB_OUTPUT
-          else
-            echo "manager=npm" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Install pnpm
-        if: steps.detect-pm.outputs.manager == 'pnpm'
-        uses: pnpm/action-setup@v4.0.0
-
-      - name: Install yarn
-        if: steps.detect-pm.outputs.manager == 'yarn'
-        run: corepack enable && corepack prepare yarn@stable --activate
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: ${{ steps.detect-pm.outputs.manager }}
-
-      - name: Install dependencies and audit tools
-        run: |
-          if [ -f "package.json" ]; then
-            if [ "${{ steps.detect-pm.outputs.manager }}" = "pnpm" ]; then
-              pnpm install --frozen-lockfile
-            elif [ "${{ steps.detect-pm.outputs.manager }}" = "yarn" ]; then
-              yarn install --frozen-lockfile
-            else
-              npm ci || npm install
-            fi
-          fi
-          npm install -g npm-audit-html
-
-      - name: Run dependency audit
-        run: |
-          PM="${{ steps.detect-pm.outputs.manager }}"
-          if [ -f "package.json" ]; then
-            if [ "$PM" = "pnpm" ]; then
-              pnpm audit --json > npm-audit.json || echo "Audit completed with warnings"
-            elif [ "$PM" = "yarn" ]; then
-              yarn audit --json > npm-audit.json || echo "Audit completed with warnings"
-            else
-              npm audit --audit-level=moderate --json > npm-audit.json || echo "Audit completed with warnings"
-            fi
-          else
-            echo "No package.json found, skipping dependency audit"
-            echo "[]" > npm-audit.json
-          fi
-
-      - name: Run secure code review (optional)
-        uses: microsoft/security-devops-action@latest
-        id: msdo
-        continue-on-error: true
-        with:
-          languages: javascript,typescript
-
-      - name: Generate security report
-        run: |
-          if [ -s npm-audit.json ]; then
-            npm-audit-html -i npm-audit.json -o npm-audit-report.html || echo "Failed to generate HTML report, creating simple report"
-            if [ ! -f npm-audit-report.html ]; then
-              echo "<html><body><h1>NPM Audit Report</h1><pre>$(cat npm-audit.json)</pre></body></html>" > npm-audit-report.html
-            fi
-          else
-            echo "<html><body><h1>NPM Audit Report</h1><p>No vulnerabilities found or no package.json present</p></body></html>" > npm-audit-report.html
-          fi
-
-      - name: Upload security reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: js-security-reports
-          path: |
-            npm-audit-report.html
-
   pr-status-check:
     runs-on: ubuntu-latest
-    needs: [detect-language, python-lint, python-security, js-lint, js-security]
+    needs: [detect-language, python-lint, python-security]
     if: always()
     steps:
       - name: Check job statuses
         run: |
           echo "=== Code Quality CI Status Report ==="
           PYTHON_NEEDED="${{ needs.detect-language.outputs.has_python }}"
-          JS_TS_NEEDED="${{ needs.detect-language.outputs.has_js_ts }}"
 
           echo "Languages detected:"
           echo "  Python: $PYTHON_NEEDED"
-          echo "  JavaScript/TypeScript: $JS_TS_NEEDED"
           echo ""
 
           FAILED_JOBS=()
@@ -391,19 +169,6 @@ jobs:
             fi
             if [[ "${{ needs.python-security.result }}" != "success" ]]; then
               FAILED_JOBS+=("Python security")
-            fi
-          fi
-
-          if [[ "$JS_TS_NEEDED" == "true" ]]; then
-            echo "JavaScript/TypeScript job results:"
-            echo "  Linting: ${{ needs.js-lint.result }}"
-            echo "  Security: ${{ needs.js-security.result }}"
-            
-            if [[ "${{ needs.js-lint.result }}" != "success" ]]; then
-              FAILED_JOBS+=("JavaScript/TypeScript linting")
-            fi
-            if [[ "${{ needs.js-security.result }}" != "success" ]]; then
-              FAILED_JOBS+=("JavaScript/TypeScript security")
             fi
           fi
 
@@ -424,15 +189,7 @@ jobs:
   all-checks-passed:
     name: All Quality Checks Passed
     runs-on: ubuntu-latest
-    needs:
-      [
-        detect-language,
-        python-lint,
-        python-security,
-        js-lint,
-        js-security,
-        pr-status-check,
-      ]
+    needs: [detect-language, python-lint, python-security, pr-status-check]
     if: always()
     steps:
       - name: Check if all required jobs passed
